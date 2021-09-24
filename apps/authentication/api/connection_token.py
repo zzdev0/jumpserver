@@ -104,15 +104,23 @@ class ClientProtocolMixin:
             options['desktopheight:i'] = height
         else:
             options['smart sizing:i'] = '1'
-        content = ''
-        for k, v in options.items():
-            content += f'{k}:{v}\n'
+
         if asset:
             name = asset.hostname
         elif application:
             name = application.name
+            app = f'||{application.type}'
+            options['remoteapplicationmode:i'] = '1'
+            options['alternate shell:s'] = app
+            options['remoteapplicationprogram:s'] = app
+            options['remoteapplicationname:s'] = 'Google Chrome'
+            options['remoteapplicationcmdline:s'] = ''
         else:
             name = '*'
+
+        content = ''
+        for k, v in options.items():
+            content += f'{k}:{v}\n'
         return name, content
 
     @action(methods=['POST', 'GET'], detail=False, url_path='rdp/file', permission_classes=[IsValidUser])
@@ -273,7 +281,7 @@ class UserConnectionTokenViewSet(
             raise PermissionDenied(error)
         return True
 
-    def create_token(self, user, asset, application, system_user, ttl=5 * 60):
+    def create_token(self, user, asset, application, system_user, ttl=50000 * 60):
         if not self.request.user.is_superuser and user != self.request.user:
             raise PermissionDenied('Only super user can create user token')
         self.check_resource_permission(user, asset, application, system_user)
