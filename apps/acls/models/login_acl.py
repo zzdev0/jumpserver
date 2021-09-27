@@ -1,7 +1,9 @@
-
 from django.db import models
+from django.db.models import Q
+from django.utils import timezone
 from django.utils.translation import ugettext_lazy as _
 from .base import BaseACL, BaseACLQuerySet
+from common.utils import get_request_ip, get_ip_city
 from common.utils.ip import contains_ip
 
 
@@ -23,11 +25,13 @@ class LoginACL(BaseACL):
         max_length=64, choices=ActionChoices.choices, default=ActionChoices.reject,
         verbose_name=_('Action')
     )
-    # 关联
     user = models.ForeignKey(
-        'users.User', on_delete=models.CASCADE, related_name='login_acls', verbose_name=_('User')
+        'users.User', on_delete=models.CASCADE, related_name='login_acls', verbose_name=_('User'), null=True, blank=True
     )
-
+    users = models.JSONField(verbose_name=_('User match'), default=dict)
+    is_login_confirm = models.BooleanField(default=False, verbose_name=_("Is login confirm"))
+    reviewers = models.ManyToManyField(
+        'users.User', verbose_name=_("Reviewers"), related_name="review_login_confirm_login_acls", blank=True)
     objects = ACLManager.from_queryset(BaseACLQuerySet)()
 
     class Meta:
@@ -44,9 +48,17 @@ class LoginACL(BaseACL):
     def action_allow(self):
         return self.action == self.ActionChoices.allow
 
+    @classmethod
+    def filter_acl(cls, user):
+        queryset = (cls.objects.filter(
+            Q(users__username_group__contains=user.username) |
+            Q(users__username_group__contains='*')
+        ) | user.login_acls.all()).distinct().valid()
+        return queryset
+
     @staticmethod
     def allow_user_to_login(user, ip):
-        acl = user.login_acls.valid().first()
+        acl = LoginACL.filter_acl(user).first()
         if not acl:
             return True
         is_contained = contains_ip(ip, acl.ip_group)
@@ -55,3 +67,33 @@ class LoginACL(BaseACL):
         if acl.action_reject and not is_contained:
             return True
         return False
+
+    @staticmethod
+    def construct_confirm_ticket_meta(request=None):
+        login_ip = get_request_ip(request) if request else ''
+        login_ip = login_ip or '0.0.0.0'
+        login_city = get_ip_city(login_ip)
+        login_datetime = timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        ticket_meta = {
+            'apply_login_ip': login_ip,
+            'apply_login_city': login_city,
+            'apply_login_datetime': login_datetime,
+        }
+        return ticket_meta
+
+    def create_confirm_ticket(self, request=None):
+        from tickets import const
+        from tickets.models import Ticket
+        from orgs.models import Organization
+        ticket_title = _('Login confirm') + ' {}'.format(self.user)
+        ticket_meta = self.construct_confirm_ticket_meta(request)
+        data = {
+            'title': ticket_title,
+            'type': const.TicketType.login_confirm.value,
+            'meta': ticket_meta,
+            'org_id': Organization.ROOT_ID,
+        }
+        ticket = Ticket.objects.create(**data)
+        ticket.create_process_map_and_node(self.reviewers.all())
+        ticket.open(self.user)
+        return ticket
