@@ -28,6 +28,7 @@ from users.utils import (
 from ..const import RSA_PRIVATE_KEY, RSA_PUBLIC_KEY
 from .. import mixins, errors
 from ..forms import get_user_login_form_cls
+from ..notifications import RemoteLandingMessage
 
 
 __all__ = [
@@ -231,6 +232,7 @@ class UserLoginGuardView(mixins.AuthMixin, RedirectView):
             return e.url
         else:
             self.login_it(user)
+            RemoteLandingMessage(user, self.request).publish_async()
             self.send_auth_signal(success=True, user=user)
             self.clear_auth_mark()
             url = redirect_user_first_login_or_index(

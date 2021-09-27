@@ -21,6 +21,7 @@ from ..models import SSOToken
 from ..filters import AuthKeyQueryDeclaration
 from ..mixins import AuthMixin
 from ..errors import SSOAuthClosed
+from ..notifications import RemoteLandingMessage
 
 NEXT_URL = 'next'
 AUTH_KEY = 'authkey'
@@ -85,5 +86,6 @@ class SSOViewSet(AuthMixin, JMSGenericViewSet):
 
         user = token.user
         login(self.request, user, 'authentication.backends.api.SSOAuthentication')
+        RemoteLandingMessage(user, request).publish_async()
         self.send_auth_signal(success=True, user=user)
         return HttpResponseRedirect(next_url)

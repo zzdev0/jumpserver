@@ -9,6 +9,7 @@ from common.utils import get_logger
 
 from .. import serializers, errors
 from ..mixins import AuthMixin
+from ..notifications import RemoteLandingMessage
 
 
 logger = get_logger(__name__)
@@ -32,6 +33,7 @@ class TokenCreateApi(AuthMixin, CreateAPIView):
             user = self.check_user_auth_if_need()
             self.check_user_mfa_if_need(user)
             self.check_user_login_confirm_if_need(user)
+            RemoteLandingMessage(user, request).publish_async()
             self.send_auth_signal(success=True, user=user)
             self.clear_auth_mark()
             resp = super().create(request, *args, **kwargs)
